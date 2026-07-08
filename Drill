@@ -1,0 +1,863 @@
+#-------------------------------------------------------------------------------------------------------------------#
+#------------------------------------------ DATABASE DRDRILL SCRIPT ----------------------------------------#
+#-------------------------------------------------------------------------------------------------------------------#
+#
+#
+#------------------------------------------ EXPORTING VARIABLE -----------------------------------------------------#
+#
+export DB_NAME=prodnbc1
+export SWITCH_TO=PRODNBC_HYDERABAD
+export SWITCH_FROM=PRODNBC_BELAPUR
+export DR_IP="10.176.192.196"
+export PR_IP="10.0.80.132"
+export ORACLE_SID_DR=${DB_NAME}_${SWITCH_TO}
+export ORACLE_SID_PR=${DB_NAME}_${SWITCH_FROM}
+export ORACLE_SID=${ORACLE_SID_PR}
+export ORACLE_HOME=`cat /etc/oratab|grep ^${DB_NAME}|cut -d: -f2`
+export ORACLE_HOME_PR=${ORACLE_HOME}
+echo ${ORACLE_HOME_PR}
+PASSWD_FILE=/home/oracle/sys_pass_file
+export PASSWD=`grep ${DB_NAME}':' ${PASSWD_FILE}|cut -d: -f2`
+LOG_LOC=/home/oracle/AUTO_DRDRILL/LOGS
+LOGFILE=$LOG_LOC/${ORACLE_SID}_drill_`date +%d%m`.out
+export HOSTNAME=`hostname`
+RED='\033[1;31m'
+GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+#-------------------------------------------------------------------------------------------------------------------#
+#
+#---------------------------------- DATABASE LOG GAP STATUS --------------------------------------------------------#
+
+variable_capture () {
+#echo "\n---------------------------------------${YELLOW} DATABASE LOG STATUS PRIMARY ${NC} -------------------------">>${LOGFILE}
+        ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+            connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+        set heading off
+        set echo off
+        set feedback off;
+        spool $LOG_LOC/${ORACLE_SID}_ora_home.out;
+        select value from v\$diag_info where name='ORACLE_HOME';
+        spool off;
+        spool $LOG_LOC/${ORACLE_SID}_db_uniq.out;
+        select value from v\$parameter where name='db_unique_name';
+        set echo off
+        spool off;
+EOF
+#echo "\n-----------------------------------------------------------------------------------------------------------"
+}
+
+instance_capture () {
+#echo "\n---------------------------------------${YELLOW} DATABASE LOG STATUS PRIMARY ${NC} -------------------------">>${LOGFILE}
+
+ORACLE_SID=${1}
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+        set heading off
+        set echo off
+        set feedback off;
+        spool $LOG_LOC/${ORACLE_SID}_db_instance.out;
+        select instance_name from gv\$instance order by 1;
+        set echo off
+        spool off;
+EOF
+
+
+
+#echo "\n-----------------------------------------------------------------------------------------------------------"
+}
+
+log_gap_pr () {
+echo "\n---------------------------------------${YELLOW} DATABASE LOG STATUS PRIMARY ${NC} -------------------------">>${LOGFILE}
+                ORACLE_SID=${1}
+                PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+            set time on timing on
+            host date
+            set echo on
+        set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_log_gap_pr.out;
+        set pages 400 lines 400
+        alter system archive log current;
+        alter system archive log current;
+        prompt select max(sequence#) ,thread# from v\$archived_log group  by thread# order by 2;
+        select max(sequence#) ,thread# from v\$archived_log group  by thread# order by 2;
+        set echo off
+        spool off;
+EOF
+#echo "\n-----------------------------------------------------------------------------------------------------------"
+}
+
+#-------------------------------------------------------------------------------------------------------------------#
+
+log_gap_dr () {
+echo "\n-----------------------------------${YELLOW} DATABASE LOG STATUS DR  ${NC} --------------------------------">>${LOGFILE}
+                ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+             set time on timing on
+             host date
+        set echo on
+                set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_log_gap_dr.out;
+        set pages 400 lines 400
+        prompt select max(sequence#) ,thread# from v\$archived_log where applied='YES' group  by thread#;
+        select max(sequence#) ,thread# from v\$archived_log where applied='YES' group  by thread#;
+        set echo off
+        spool off;
+EOF
+#        echo "\n----------------------------------------------------------------------------------------------------"
+}
+
+#-------------------------------------------------------------------------------------------------------------------#
+
+dbstat_pr () {
+
+echo "\n-----------------------------------${YELLOW} DATABASE STATUS PR  ${NC} -------------------------------------">>${LOGFILE}
+                ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+             set time on timing on
+             host date
+        set echo on
+                set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_dbstat_pr.out;
+        set pages 400 lines 400
+        prompt select inst_id,name, log_mode,open_mode,current_scn ,controlfile_type, flashback_on from gv\$database order by 1;
+        select inst_id,name, log_mode,open_mode,current_scn ,controlfile_type, flashback_on,database_role from gv\$database order by 1;
+        set echo off
+        spool off;
+EOF
+#        echo "\n----------------------------------------------------------------------------------------------------"
+
+}
+
+dbstat_dr () {
+
+echo "\n-----------------------------------${YELLOW} DATABASE STATUS DR  ${NC} -------------------------------------">>${LOGFILE}
+                ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+             set time on timing on
+             host date
+        set echo on
+                set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_dbstat_dr.out;
+        set pages 400 lines 400
+        prompt select inst_id,name, log_mode,open_mode,current_scn ,controlfile_type, flashback_on from gv\$database order by 1;
+        select inst_id,name, log_mode,open_mode,current_scn ,controlfile_type, flashback_on,database_role from gv\$database order by 1;
+        set echo off
+        spool off;
+EOF
+#        echo "\n----------------------------------------------------------------------------------------------------"
+
+}
+
+
+log_dst_chk () {
+
+echo "\n---------------------------${YELLOW} DATABASE LOG DESTINATION CHECK  ${NC} ---------------------------------">>${LOGFILE}
+                ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+             set time on timing on
+             host date
+        set echo on
+                set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_log_dst_chk.out;
+        set pages 400 lines 400
+        prompt select dest_id,status from v\$archive_dest where status='VALID' and dest_id!=32;
+        select dest_id,status from v\$archive_dest where status='VALID' and dest_id!=32;
+        set echo off
+        spool off;
+EOF
+#        echo "\n----------------------------------------------------------------------------------------------------"
+
+}
+
+log_dst_defer () {
+
+echo "\n---------------------------${YELLOW} DATABASE LOG DESTINATION DEFER  ${NC} ---------------------------------">>${LOGFILE}
+                ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+             set time on timing on
+             host date
+        set echo on
+                set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_log_dst_defer.out;
+        set pages 400 lines 400
+                alter system set log_archive_dest_state_2='DEFER';
+                #alter system set log_archive_dest_state_7='DEFER';
+                #alter system set log_archive_dest_state_8='DEFER';
+                #alter system set log_archive_dest_state_12='DEFER';
+        set echo off
+        spool off;
+EOF
+#        echo "\n----------------------------------------------------------------------------------------------------"
+
+}
+
+
+inst_shut () {
+
+echo "\n------------------------------------${YELLOW} INSTANCE SHUTDOWN  ${NC} -------------------------------------">>${LOGFILE}
+
+ORACLE_SID=${1}
+IP=${2}
+        echo "ssh -o SendEnv=${ORACLE_HOME_PR} ${IP} "${ORACLE_HOME}/bin/srvctl stop instance -d ${DB_UNIQ_PR} -i ${INST_2},${INST_3}"">>${LOGFILE}
+        ssh -o SendEnv=${ORACLE_HOME_PR} ${IP} "export ORACLE_HOME=${ORACLE_HOME};${ORACLE_HOME}/bin/srvctl stop instance -d ${DB_UNIQ_PR} -i ${INST_2},${INST_3}" 2>/dev/null
+        echo "ssh -o SendEnv=${ORACLE_HOME_PR} ${IP} "${ORACLE_HOME}/bin/srvctl status database -d ${DB_UNIQ_PR} -v"">>${LOGFILE}
+        ssh -o SendEnv=${ORACLE_HOME_PR} ${IP} "export ORACLE_HOME=${ORACLE_HOME_PR};${ORACLE_HOME}/bin/srvctl status database -d ${DB_UNIQ_PR} -v" 2>/dev/null
+#        echo "\n----------------------------------------------------------------------------------------------------"
+}
+
+db_shut () {
+
+echo "\n------------------------------------${YELLOW} DATABASE SHUTDOWN  ${NC} -------------------------------------">>${LOGFILE}
+
+ORACLE_SID=${1}
+IP=${2}
+        echo "ssh -o SendEnv=${ORACLE_HOME_DR} ${IP} "${ORACLE_HOME}/bin/srvctl stop database -d ${DB_UNIQ_DR}"" >> ${LOGFILE}
+        ssh -o SendEnv=${ORACLE_HOME_DR} ${IP} "export ORACLE_HOME=${ORACLE_HOME_DR};${ORACLE_HOME}/bin/srvctl stop database -d ${DB_UNIQ_DR} " 2>/dev/null
+        echo "ssh -o SendEnv=${ORACLE_HOME_DR} ${IP} "${ORACLE_HOME}/bin/srvctl status database -d ${DB_UNIQ_DR} -v"">>${LOGFILE}
+        ssh -o SendEnv=${ORACLE_HOME_DR} ${IP} "export ORACLE_HOME=${ORACLE_HOME_DR};${ORACLE_HOME}/bin/srvctl status database -d ${DB_UNIQ_DR} -v" 2>/dev/null
+#        echo "\n----------------------------------------------------------------------------------------------------"
+}
+
+
+active_sess_chk () {
+
+echo "\n------------------------------------${YELLOW} ACTIVE SESSION CHECK ${NC} -----------------------------------">>${LOGFILE}
+                ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+             set time on timing on
+             host date
+        set echo on
+        set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_active_sess_chk.out;
+        set pages 400 lines 400
+                SET LINES 300 PAGES 20000
+        COL USERNAME FOR A15
+        COL EVENT FOR A30
+        COL MODULE FOR A35
+        COL PROCESS FOR A10
+        COL MACHINE FOR A15
+        set time on timing on
+        prompt select INST_ID,SID, SERIAL#, USERNAME, STATUS, PROCESS, SQL_ID, MODULE,MACHINE, LAST_CALL_ET/60, BLOCKING_SESSION, EVENT from gv\$session where username is not null and status='ACTIVE' and LAST_CALL_ET > 60 order by 10;
+        select INST_ID,SID, SERIAL#, USERNAME, STATUS, PROCESS, SQL_ID, MODULE,MACHINE, LAST_CALL_ET/60, BLOCKING_SESSION, EVENT from gv\$session where username is not null and status='ACTIVE' and LAST_CALL_ET > 60 order by 10;
+        set echo off
+        spool off;
+EOF
+#        echo "\n----------------------------------------------------------------------------------------------------"
+}
+
+switchover_stat_pr () {
+
+echo "\n----------------------------${YELLOW} SWITCHOVER STATUS CHECK PRIMARY  ${NC} -------------------------------">>${LOGFILE}
+                ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+             set time on timing on
+             host date
+        set echo on
+        set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_switchover_stat_pr.out;
+        set pages 400 lines 400
+        set time on timing on
+        prompt select name,open_mode, DATABASE_ROLE,SWITCHOVER_STATUS,controlfile_type,log_mode,flashback_on from gv\$database;
+        select name,open_mode, DATABASE_ROLE,SWITCHOVER_STATUS,controlfile_type,log_mode,flashback_on from gv\$database;
+        set echo off
+        spool off;
+EOF
+#        echo "\n----------------------------------------------------------------------------------------------------"
+}
+
+
+switch_to_stdby () {
+
+echo "\n---------------------------${YELLOW} SWITCHOVER PRIMARY TO STANDBY  ${NC} ----------------------------------">>${LOGFILE}
+
+                ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+             set time on timing on
+             host date
+        set echo on
+        set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_switch_to_stdby.out;
+        set pages 400 lines 400
+            set time on timing on
+        prompt alter database commit to switchover to physical standby with session shutdown;
+        alter database commit to switchover to physical standby with session shutdown;
+        set echo off
+        spool off;
+EOF
+#        echo "\n----------------------------------------------------------------------------------------------------"
+}
+
+
+switchover_stat_dr () {
+
+echo "\n---------------------------${YELLOW} SWITCHOVER STATUS CHECK STANDBY  ${NC} --------------------------------">>${LOGFILE}
+                ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+             set time on timing on
+             host date
+        set echo on
+                set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_switchover_stat_dr.out;
+        set pages 400 lines 400
+        set time on timing on
+        prompt select name,open_mode, DATABASE_ROLE,controlfile_type,log_mode,flashback_on,SWITCHOVER_STATUS from gv\$database;
+        select name,open_mode, DATABASE_ROLE,controlfile_type,log_mode,flashback_on,SWITCHOVER_STATUS from gv\$database;
+        set echo off
+        spool off;
+EOF
+#        echo "\n----------------------------------------------------------------------------------------------------"
+}
+
+mrp_cancel_dr () {
+
+echo "\n---------------------------------${YELLOW} MRP CANCEL ON STANDBY  ${NC} ------------------------------------">>${LOGFILE}
+                ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+             set time on timing on
+             host date
+        set echo on
+                set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_mrp_cancel_dr.out;
+        set pages 400 lines 400
+        set time on timing on
+        prompt alter database recover managed standby database cancel;
+        alter database recover managed standby database cancel;
+        set echo off
+        spool off;
+EOF
+#        echo "\n----------------------------------------------------------------------------------------------------"
+}
+
+mrp_stat_dr () {
+
+echo "\n--------------------------------${YELLOW} MRP STATUS ON STANDBY ${NC} --------------------------------------">>${LOGFILE}
+                ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+             set time on timing on
+             host date
+        set echo on
+                set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_mrp_stat_dr.out;
+        set pages 400 lines 400
+        set time on timing on
+        prompt select process,status from v\$managed_standby where PROCESS like '%MRP%';
+        select process,status from v\$managed_standby where PROCESS like '%MRP%';
+                set echo off
+        spool off;
+EOF
+#        echo "\n----------------------------------------------------------------------------------------------------"
+}
+
+
+
+switch_to_primary () {
+
+echo "\n---------------------------${YELLOW} SWITCHOVER STANDBY TO PRIMARY ${NC} -----------------------------------">>${LOGFILE}
+                ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+             set time on timing on
+             host date
+        set echo on
+                set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_switch_to_stdby.out;
+        set pages 400 lines 400
+            set time on timing on
+        prompt alter database commit to switchover to primary;
+        alter database commit to switchover to primary;
+        set echo off
+        spool off;
+EOF
+#        echo "\n----------------------------------------------------------------------------------------------------"
+}
+
+flashback_off () {
+
+echo "\n---------------------------${YELLOW} DLASHBACK OFF ON STANDBY  ${NC} ---------------------------------------">>${LOGFILE}
+                ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+             set time on timing on
+             host date
+        set echo on
+                set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_flashback_off.out;
+        set pages 400 lines 400
+            set time on timing on
+        prompt alter database flashback off;
+       alter database flashback off;
+        set echo off
+        spool off;
+EOF
+#        echo "\n----------------------------------------------------------------------------------------------------"
+}
+
+start_db () {
+
+echo "\n---------------------------${YELLOW} STARTING INSTANCE POST SWITCHOVER  ${NC} ------------------------------">>${LOGFILE}
+                ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+             set time on timing on
+             host date
+        set echo on
+                set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_startup.out;
+        set pages 400 lines 400
+            set time on timing on
+        prompt alter database open;
+        alter database open;
+        set echo off
+        spool off;
+EOF
+#        echo "\n----------------------------------------------------------------------------------------------------"
+}
+
+start_stdby_inst () {
+
+echo "\n---------------------------${YELLOW} STARTING INSTANCE POST SWITCHOVER  ${NC} ------------------------------">>${LOGFILE}
+        ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+             set time on timing on
+             host date
+        set echo on
+                set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_startup.out;
+        set pages 400 lines 400
+            set time on timing on
+			startup mount
+        prompt alter database open;
+        alter database open read only;
+        set echo off
+        spool off;
+EOF
+#        echo "\n----------------------------------------------------------------------------------------------------"
+}
+
+
+final_chk () {
+
+echo "\n---------------------------${YELLOW} FINAL CHECKS POST SWITCHOVER ${NC} ------------------------------------">>${LOGFILE}
+                ORACLE_SID=${1}
+        PASSWD_FILE=/var/hp/BC/sys_pass_file
+        #PASSWD=`grep -w ^${ORACLE_SID} ${PASSWD_FILE}|cut -d: -f2`
+        ${ORACLE_HOME}/bin/sqlplus -s /nolog  <<EOF >>${LOGFILE}
+             connect sys/${PASSWD}@${ORACLE_SID} as sysdba
+             set time on timing on
+             host date
+        set echo on
+                set feedback on;
+        set verify on
+        select host_name from v\$instance;
+        spool $LOG_LOC/${ORACLE_SID}_final_chk;
+        set pages 400 lines 400
+            set time on timing on
+                show parameter cluster
+                show parameter undo
+                select inst_id,name,log_mode,open_mode,current_scn,controlfile_type ,flashback_on from gv\$database order by 1;
+                select * from v\$database_block_corruption;
+        set echo off
+        spool off;
+EOF
+#        echo "\n----------------------------------------------------------------------------------------------------"
+
+}
+
+confirm () {
+
+        while true
+        do
+
+       #echo "\t\t${GREEN}PROCEED [y] ${NC}\c"
+        printf "$GREEN PROCEED [y] $NC"
+        read resp
+        if [ "${resp}" != y ]
+        then
+        printf "$RED%-106s$NC" "PLEASE PROVIDE CORRECT INPUT"
+        continue;
+        else
+        echo "-----------------------------------------------------------------------------------------------------------------------------"
+        break;
+        fi
+        done
+}
+
+#------------------------------------------ BACKING UP LOG FILE ----------------------------------------------------#
+
+if [ -f $LOGFILE ]
+then
+        mv ${LOGFILE} $LOG_LOC/${ORACLE_SID}_drdrill_`date +%d%m_%H%M`.out
+        echo "\n================ STARTING SWITCHOVER OF ${ORACLE_SID}======================================\n\n">${LOGFILE}
+else
+        echo "\n================ STARTING SWITCHOVER OF ${ORACLE_SID}======================================\n\n">${LOGFILE}
+fi
+                variable_capture ${ORACLE_SID_PR}
+               export ORACLE_HOME_PR=`cat $LOG_LOC/${ORACLE_SID_PR}_ora_home.out|grep -v ^$|awk '{print $1}'`
+               export DB_UNIQ_PR=`cat $LOG_LOC/${ORACLE_SID_PR}_db_uniq.out|grep -v ^$|awk '{print $1}'`
+
+                variable_capture ${ORACLE_SID_DR}
+               export ORACLE_HOME_DR=`cat $LOG_LOC/${ORACLE_SID_DR}_ora_home.out|grep -v ^$|awk '{print $1}'`
+               export DB_UNIQ_DR=`cat $LOG_LOC/${ORACLE_SID_DR}_db_uniq.out|grep -v ^$|awk '{print $1}'`
+
+                instance_capture ${ORACLE_SID_PR}
+                export INST_CNT=`cat $LOG_LOC/${ORACLE_SID_PR}_db_instance.out|grep -v ^$|wc -l`
+               export INST_NUM=1
+
+              for INST_NAME in `cat $LOG_LOC/${ORACLE_SID_PR}_db_instance.out|grep -v ^$`
+              do
+                  export INST_${INST_NUM}=${INST_NAME}
+                   INST_NUM=`expr ${INST_NUM} + 1`
+              done
+
+
+
+        echo "\n\n--------------------------${YELLOW} INITIALIZATION OF PRE-CHECKS FOR DR DRILL ${NC} -----------"
+        echo "ORACLE_SID ---> ${DB_NAME}"|awk '{printf "\t\t%-20s%3s\t%-10s\n",$1,$2,$3}'
+        echo "LOGS_LOCATION ---> $LOG_LOC"|awk '{printf "\t\t%-20s%3s\t%-10s\n",$1,$2,$3}'
+        echo "LOG_FILE_NAME ---> $LOGFILE"|awk '{printf "\t\t%-20s%3s\t%-10s\n",$1,$2,$3}'
+        echo "\n\nPRESS ENTER TO PROCEED DATABASE PRE CHECKS\n\n"
+read
+
+#-------------------------------------------------------------------------------------------------------------------#
+
+        echo "\n====================================${YELLOW}SWITCHOVER OF ${DB_NAME} STARTED AT `date`${NC}================================="
+                dbstat_pr ${ORACLE_SID_PR}
+                printf "%-100s""$GREEN%s\n$NC" "PRIMARY DATABASE STATUS" "[ OK ]"
+                dbstat_dr ${ORACLE_SID_DR}
+                printf "%-100s""$GREEN%s$NC" "STANDBY DATABASE STATUS" "[ OK ]"
+                confirm
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------
+
+                log_gap_pr ${ORACLE_SID_PR}
+                printf "%-100s""$GREEN%s\n$NC" "PRIMARY DATABASE LOG STATUS" "[ OK ]"
+                log_gap_dr ${ORACLE_SID_DR}
+                printf "%-100s""$GREEN%s$NC" "STANDBY DATABASE LOG STATUS" "[ OK ]"
+                confirm
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+        while :
+        do
+        active_sess_chk ${ORACLE_SID_PR}
+
+        status=`cat $LOG_LOC/${ORACLE_SID}_active_sess_chk.out|grep "no rows selected"|awk '{print $1}'|grep -v ^$`
+                if [ "${status}" = "no" ]
+        then
+                printf "%-100s""$GREEN%s$NC" "PRIMARY DATABASE HAS NO ACTIVE SESSIONS" "[ OK ]"
+                confirm
+                break;
+        else
+                printf "%-100s""$RED%s\n$NC" "PRIMARY DATABASE HAS ACTIVE SESSIONS" "[ NOT OK ]"
+                sleep 10
+                continue;
+        fi
+        done
+#----------------------------------------------------------------------------------------------------------------------------------------------------
+
+        #log_dst_defer ${INST_PR}
+        while :
+       do
+                log_dst_chk ${ORACLE_SID_PR}
+                        status=`cat $LOG_LOC/${ORACLE_SID}_log_dst_chk.out|grep "rows selected"|awk '{print $1}'|grep -v ^$`
+                if [ "${status}" -eq "2" ]
+        then
+                printf "%-100s""$GREEN%s$NC" "PRIMARY DATABASE HAS VALID DESTINATIONS ENABLED" "[ OK ]"
+                confirm
+                break;
+        else
+                printf "%-100s""$RED%s\n$NC" "PRIMARY DATABASE HAS INVALID DESTINATIONS" "[ NOT OK ]"
+                sleep 10
+                continue;
+        fi
+        done
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------
+        while :
+       do
+                log_dst_chk ${ORACLE_SID_DR}
+                        status=`cat $LOG_LOC/${ORACLE_SID}_log_dst_chk.out|grep VALID|grep -w 1|awk '{print $1}'|grep -v ^$`
+                if [ "${status}" -eq "1" ]
+        then
+                printf "%-100s""$GREEN%s$NC" "STANDBY DATABASE HAS VALID DESTINATIONS ENABLED" "[ OK ]"
+                confirm
+                break;
+        else
+                printf "%-100s""$RED%s\n$NC" "STANDBY DATABASE HAS INVALID DESTINATIONS" "[ NOT OK ]"
+                sleep 10
+                continue;
+        fi
+        done
+#----------------------------------------------------------------------------------------------------------------------------------------------------
+       # while :
+       # do
+       # inst_shut ${ORACLE_SID_PR} ${PR_IP}
+#
+#                sleep 60
+#                dbstat_pr ${ORACLE_SID_PR}
+#                status=`cat $LOG_LOC/${ORACLE_SID}_log_dst_chk.out|grep "rows selected"|awk '{print $1}'|grep -v ^$`
+#                if [ "${status}" -eq "2" ]
+#                        then
+#                printf "%-100s""$GREEN%s$NC" "SINGLE INSTANCE OF RAC DATABASE IS RUNNING" "[ OK ]"
+#                confirm
+#                break;
+#                else
+#                printf "%-100s""$RED%s\n$NC" "MORE THAN ONE INSTANCE OF RAC DATABASE IS RUNNING" "[ NOT OK ]"
+#                sleep 10
+#                continue;
+#                fi
+#                done
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------
+
+        while :
+                do
+        switchover_stat_pr ${ORACLE_SID_PR}
+                status=`cat $LOG_LOC/${ORACLE_SID}_switchover_stat_pr.out|grep "STANDBY"|head -1 |awk '{print $6}'|grep -v ^$`
+                 if [ "${status}" = "STANDBY" ]
+        then
+                printf "%-100s""$GREEN%s$NC" "PRIMARY DATABASE SWITCHOVER TO STANDBY STATUS" "[ OK ]"
+                confirm
+                break;
+        else
+                printf "%-100s""$RED%s\n$NC" "PRIMARY DATABASE SWITCHOVER TO STANDBY STATUS" "[ NOT OK ]"
+                sleep 10
+                continue;
+        fi
+        done
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------
+
+        switch_to_stdby ${ORACLE_SID_PR}
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------
+
+        while :
+                do
+      switchover_stat_dr ${ORACLE_SID_DR}
+                                status=`cat $LOG_LOC/${ORACLE_SID}_switchover_stat_dr.out|grep "PRIMARY"|head -1|awk '{print $NF}'|grep -v ^$`
+                 if [ "${status}" = "PRIMARY" ]
+        then
+                printf "%-100s""$GREEN%s$NC" "STANDBY DATABASE SWITCHOVER TO PRIMARY STATUS" "[ OK ]"
+                confirm
+                break;
+        else
+                printf "%-100s""$RED%s\n$NC" "STANDBY DATABASE SWITCHOVER TO PRIMARY STATUS" "[ NOT OK ]"
+                sleep 10
+                continue;
+        fi
+        done
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------
+
+#       while :
+#       do
+#        mrp_cancel_dr ${ORACLE_SID_DR}
+#        sleep 10
+#                mrp_stat_dr ${ORACLE_SID_DR}
+#        status=`cat $LOG_LOC/${ORACLE_SID}_mrp_stat_dr.out|grep "no rows selected"|awk '{print $1}'|grep -v ^$`
+#                if [ "${status}" = "no" ]
+#        then
+#                printf "%-100s""$GREEN%s$NC" "STANDBY DATABASE HAS NO ACTIVE MRP" "[ OK ]"
+#                confirm
+#                break;
+#        else
+#                printf "%-100s""$RED%s\n$NC" "STANDBY DATABASE HAS ACTIVE MRP" "[ NOT OK ]"
+#                sleep 10
+#                continue;
+#        fi
+#        done
+#
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------
+
+        switch_to_primary ${ORACLE_SID_DR}
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+                flashback_off ${ORACLE_SID_DR}
+
+                printf "%-100s""$GREEN%s$NC" "FLASHBACK ON STANDBY DATABASE IS DISABLED" "[ OK ]"
+                confirm
+#----------------------------------------------------------------------------------------------------------------------------------------------------
+
+               while :
+               do
+               dbstat_dr ${ORACLE_SID_DR}
+
+                       ctrl_file=`cat $LOG_LOC/${ORACLE_SID}_dbstat_dr.out|grep -w "CURRENT"|head -1|awk '{print $6}'|grep -v ^$`
+                               flash_on=`cat $LOG_LOC/${ORACLE_SID}_dbstat_dr.out|grep -w "CURRENT"|head -1|awk '{print $7}'|grep -v ^$`
+
+                 if [ "${ctrl_file}" = "CURRENT" ] && [ "${flash_on}" = "NO" ]
+        then
+                                printf "%-100s""$GREEN%s\n$NC" "STANDBY DATABASE SWITCHED TO PRIMARY" "[ OK ]"
+                        confirm
+                        break;
+                 else
+                         printf "%-100s""$RED%s$NC" "STANDBY DATABASE SWITCHOVER TO PRIMARY FAILED" "[ NOT OK ]"
+                         sleep 10
+                         continue;
+                 fi
+                 done
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------
+
+#                db_shut ${ORACLE_SID_DR} ${DR_IP}
+#                sleep 60
+#                printf "%-100s""$GREEN%s$NC" "PRIMARY DATABASE SHUTDOWN" "[ OK ]"
+#                confirm
+#----------------------------------------------------------------------------------------------------------------------------------------------------
+#INST_NUM=1
+#while :
+#do
+#   if [ "${INST_NUM}" -le "${INST_CNT}" ]
+#   then
+#      eval "echo \$INST_$INST_NUM" |xargs > $LOG_LOC/${ORACLE_SID}_inst_name.out
+#      start_db `cat $LOG_LOC/${ORACLE_SID}_inst_name.out`
+#      sleep 10
+#      INST_NUM=`expr ${INST_NUM} + 1`
+#      echo $INST_NUM
+#   else
+#   break;
+#  fi
+#done
+              for INST_NAME in `cat $LOG_LOC/${ORACLE_SID_PR}_db_instance.out|grep -v ^$`
+              do
+                start_db ${INST_NAME}_${SWITCH_TO} &
+                sleep 10;
+              done
+
+
+
+                while :
+                do
+                dbstat_pr ${ORACLE_SID_DR}
+                status=`cat $LOG_LOC/${ORACLE_SID}_dbstat_pr.out|grep "READ WRITE"|grep -v ^$|wc -l`
+                if [ "${status}" -eq "${INST_CNT}" ]
+                        then
+                        printf "%-100s""$GREEN%s\n$NC" " ALL INSTANCES OF RAC DATABASE ${DB_NAME} HAS STARTED" "[ OK ]"
+                        break;
+                        else
+                        printf "%-100s""$YELLOW%s\n$NC" "RAC INSTANCES STARTUP IN PROGRESS" "[ IN PROGRESS ]"
+                        sleep 10
+                        continue;
+                        fi
+                        done
+
+                printf "%-100s""$GREEN%s$NC" "PRIMARY DATABASE STARTED ON ALL NODES" "[ OK ]"
+                confirm
+#----------------------------------------------------------------------------------------------------------------------------------------------------
+
+                final_chk ${ORACLE_SID_DR}
+
+                printf "%-100s""$GREEN%s\n$NC" "PRIMARY DATABASE FINAL CHECKS" "[ OK ]"
+                confirm
+#----------------------------------------------------------------------------------------------------------------------------------------------------
+                for INST_NAME in `cat $LOG_LOC/${ORACLE_SID_PR}_db_instance.out|grep racs`
+                do
+                 start_stdby_inst ${INST_NAME}_${SWITCH_FROM} &
+                sleep 10;
+              done
+				while :
+                do
+                dbstat_dr ${ORACLE_SID_PR}
+                status=`cat $LOG_LOC/${ORACLE_SID}_dbstat_dr.out|grep "ONLY"|grep -v ^$|wc -l`
+                if [ "${status}" -eq "${INST_CNT}" ]
+                        then
+                        printf "%-100s""$GREEN%s\n$NC" " ALL INSTANCES OF RAC DATABASE ${DB_NAME} HAS STARTED" "[ OK ]"
+                        break;
+                        else
+                        printf "%-100s""$YELLOW%s\n$NC" "RAC INSTANCES STARTUP IN PROGRESS" "[ IN PROGRESS ]"
+                        sleep 10
+                        continue;
+                        fi
+                        done
+
+                printf "%-100s""$GREEN%s$NC" "STANDBY DATABASE MOUNTED ON ALL NODES" "[ OK ]"
+                confirm
+
+        echo "\n====================================${YELLOW}SWITCHOVER OF ${DB_NAME} COMPLETED AT `date`${NC}================================="
+
