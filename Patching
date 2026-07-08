@@ -1,0 +1,50 @@
+echo "Attempting to shut down Oracle database $ORACLE_SID..."
+
+# Connect to SQL*Plus as SYSDBA and issue SHUTDOWN IMMEDIATE command
+sqlplus /nolog <<EOF
+CONNECT / AS SYSDBA
+SHUTDOWN IMMEDIATE;
+EXIT;
+EOF
+
+if [ $? -eq 0 ]; then
+    echo "Database $ORACLE_SID shut down successfully."
+else
+    echo "Error shutting down database $ORACLE_SID. Aborting."
+    exit 1
+fi
+
+
+echo "Stopping Listener"
+ps -ef|grep tns
+lsnrctl stop LISTENER
+
+
+echo "Starting patching"
+
+cd $ORACLE_HOME/OPatch
+./opatch apply -oh $ORACLE_HOME -local /oracle/38632161 -silent
+
+echo "Attempting to start up Oracle database $ORACLE_SID..."
+
+# Connect to SQL*Plus as SYSDBA and issue STARTUP command
+sqlplus /nolog <<EOF
+CONNECT / AS SYSDBA
+STARTUP;
+EXIT;
+EOF
+
+if [ $? -eq 0 ]; then
+    echo "Database $ORACLE_SID started up successfully."
+else
+    echo "Error starting up database $ORACLE_SID. Check logs."
+    exit 1
+fi
+
+echo "Start Listener"
+
+lsnrctl start LISTENER
+ps -ef|grep tns
+
+echo "Patching completed."
+
